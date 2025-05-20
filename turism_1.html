@@ -1,0 +1,921 @@
+<!DOCTYPE html>
+<html lang="ro">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Discover România</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
+  <style>
+    body {
+      font-family: 'Segoe UI', sans-serif;
+      margin: 0;
+      padding: 0;
+      background: #f4f4f4;
+      color: #333;
+    }
+
+    header {
+      background: #004080;
+      color: white;
+      padding: 30px 20px;
+      text-align: center;
+    }
+
+    #map {
+      height: 400px;
+      width: 100%;
+      display: block;
+    }
+
+    #route-selection {
+      display: flex;
+      justify-content: center;
+      gap: 40px;
+      padding: 20px;
+      background: #eef1f5;
+    }
+
+    .drop-zone {
+      border: 2px dashed #ccc;
+      border-radius: 12px;
+      width: 250px;
+      min-height: 150px;
+      background: #fff;
+      padding: 10px;
+      text-align: center;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.1);
+      transition: background 0.3s ease;
+    }
+
+    .drop-zone.highlight {
+      background: #dff0d8;
+    }
+
+    .drop-box {
+      min-height: 80px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 5px;
+      font-size: 14px;
+      color: #777;
+    }
+
+    #card-container {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: center;
+      padding: 30px;
+      gap: 20px;
+      background: #f0f2f5;
+    }
+
+    .card {
+      background: white;
+      border-radius: 12px;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+      width: 300px;
+      transition: transform 0.2s ease, box-shadow 0.2s ease;
+      cursor: pointer;
+      overflow: hidden;
+    }
+
+    .card:hover {
+      transform: translateY(-5px);
+      box-shadow: 0 8px 20px rgba(0,0,0,0.15);
+    }
+
+    .card img {
+      width: 100%;
+      height: 180px;
+      object-fit: cover;
+    }
+
+    .card-content {
+      padding: 16px;
+    }
+
+    .card-content h2 {
+      margin-top: 0;
+      font-size: 18px;
+      color: #2c3e50;
+    }
+
+    .card-content p {
+      margin: 8px 0;
+      font-size: 14px;
+    }
+
+    .pulse {
+      animation: pulse 1s ease-out;
+    }
+
+    @keyframes pulse {
+      0% { transform: scale(1); }
+      50% { transform: scale(1.4); }
+      100% { transform: scale(1); }
+    }
+
+    .suggestion-box {
+      text-align: center;
+      margin-top: 30px;
+      padding: 20px;
+      background: #fff7e6;
+      border-radius: 12px;
+      margin-inline: 50px;
+      box-shadow: 0 4px 16px rgba(0,0,0,0.1);
+      animation: fadeIn 1s ease-out forwards;
+      opacity: 0;
+    }
+
+    @keyframes fadeIn {
+      to { opacity: 1; }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Discover România</h1>
+    <p>Trasee turistice prin cele mai frumoase locuri</p>
+  </header>
+
+  <div id="map"></div>
+
+  <div id="route-selection">
+    <div class="drop-zone" id="start-zone">
+      <h3>Punct de plecare</h3>
+      <div class="drop-box" id="start-drop" ondrop="onDrop(event)" ondragover="allowDrop(event)">Trage o locație aici</div>
+    </div>
+    <div class="drop-zone" id="end-zone">
+      <h3>Destinație</h3>
+      <div class="drop-box" id="end-drop" ondrop="onDrop(event)" ondragover="allowDrop(event)">Trage o locație aici</div>
+    </div>
+  </div>
+
+  <main id="card-container"></main>
+  <div id="suggestion-box" class="suggestion-box" style="display: none"></div>
+
+  <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+  <script>
+    const map = L.map('map').setView([45.9432, 24.9668], 6);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      attribution: '&copy; OpenStreetMap contributors'
+    }).addTo(map);
+
+    
+
+    const predefinedLocations = [
+      { name: "Castelul Bran", lat: 45.5155, lon: 25.367, image: "bran.jpg", history: "Construit în secolul al XIV-lea...", legend: "Castelul lui Dracula", itinerary: "Vizită ghidată..." },
+      { name: "Cetatea Sighișoara", lat: 46.217, lon: 24.779, image: "cetatea_sighisoara.png", history: "Cetate medievală...", legend: "Nașterea lui Vlad Țepeș", itinerary: "Turnul cu Ceas..." },
+      { name: "Transfăgărășan", lat: 45.5981, lon: 24.6165, image: "transfagarasan.jpg", history: "Drum strategic militar...", legend: "Blestemul constructorilor", itinerary: "Lacul Bâlea..." },
+      { name: "Cheile Nerei", lat: 44.9000, lon: 21.8500, image: "cheile_nerei.jpg", history: "Rezervație naturală spectaculoasă...", legend: "Zânele din ape albastre", itinerary: "Rafting și camping" },
+      { name: "Lacul Roșu", lat: 46.5667, lon: 25.9833, image: "lacul_rosu.jpg", history: "Formarea lacului a fost cauzată de alunecarea unui versant montan în anul 1837.", legend: "Se spune că lacul s-a format din sângele vărsat al unui cioban ucis de turci.", itinerary: "Plimbări cu barca, trasee montane, vizite la Cheile Bicazului." },
+      { name: "Cetatea Alba Carolina", lat: 45.067, lon: 23.575, image: "cetatea_alba_carolina.jpg", history: "Fortificație în stil Vauban, construită în secolul XVIII.", legend: "Se spune că sub cetate există un labirint de tuneluri secrete.", itinerary: "Plimbare prin bastioane, ceremonialul schimbării gărzii, muzeele cetății." },
+      { name: "Mănăstirea Voroneț", lat: 47.5193, lon: 25.8697, image: "manastirea_voronet.jpg", history: "Ctitorită în 1488 de Ștefan cel Mare după o victorie împotriva otomanilor.", legend: "Culoarea albastră 'Voroneț' este unică în lume, iar compoziția este încă necunoscută.", itinerary: "Vizită la mănăstire, picturi murale, trasee spirituale." },
+      { name: "Delta Dunării", lat: 45.0900, lon: 29.5744, image: "delta_dunarii.jpg", history: "Cea mai mare zonă umedă din Europa, parte UNESCO.", legend: "Se spune că Delta este protejată de spiritele apei și pădurilor.", itinerary: "Tururi cu barca, birdwatching, pescuit, eco-turism." },
+      { name: "Cascada Bigăr", lat: 45.0000, lon: 21.9600, image: "cascada_bigar.jpg", history: "Una dintre cele mai frumoase cascade din lume (până în 2021).", legend: "O fată s-a transformat în această cascadă din iubire imposibilă.", itinerary: "Drum forestier, fotografie, relaxare în natură." },
+      { name: "Peștera Scărișoara", lat: 46.5000, lon: 22.8167, image: "pestera_scarisoara.jpg", history: "Adăpostește unul dintre cei mai vechi ghețari subterani din lume.", legend: "Legenda spune că aici locuia Făt-Frumos al Gheții.", itinerary: "Explorare ghidată, peșteri, trasee montane." },
+      { name: "Castelul Peleș", lat: 45.3593, lon: 25.5426, image: "castelul_peles.jpg", history: "Reședință regală construită de Carol I în stil neorenașcentist.", legend: "Se spune că o parte din comoara regilor este ascunsă în pereți.", itinerary: "Vizită ghidată, grădini, muzeu regal." },
+      { name: "Biserica Neagră", lat: 45.6427, lon: 25.5889, image: "biserica_neagra.jpg", history: "Cel mai mare edificiu gotic din sud-estul Europei.", legend: "A fost numită 'Neagră' după marele incendiu din 1689.", itinerary: "Vizită la biserică, concerte de orgă, tur istoric Brașov." },
+      { name: "Cheile Nerei", lat: 44.9000, lon: 21.8500, image: "cheile_nerei.jpg", history: "Rezervație naturală cu peisaje spectaculoase, peșteri și lacuri.", legend: "Legenda spune că zânele Nerei se scăldau în lacurile albastre.", itinerary: "Drumeții, rafting, camping, cascade." }
+    ];
+
+    const markerMap = new Map();
+    const container = document.getElementById("card-container");
+
+    predefinedLocations.forEach(loc => {
+      const marker = L.marker([loc.lat, loc.lon]).addTo(map)
+        .bindPopup(`<strong>${loc.name}</strong><br>${loc.history}`);
+      markerMap.set(loc.name, marker);
+
+      const card = document.createElement("div");
+      card.className = "card";
+      card.setAttribute("draggable", "true");
+      card.addEventListener("dragstart", ev => {
+        ev.dataTransfer.setData("text/plain", loc.name);
+      });
+
+      card.innerHTML = `
+        <img src="${loc.image}" alt="${loc.name}">
+        <div class="card-content">
+          <h2>${loc.name}</h2>
+          <p><strong>Istorie:</strong> ${loc.history}</p>
+          <p><strong>Legenda:</strong> ${loc.legend}</p>
+          <p><strong>Itinerariu:</strong> ${loc.itinerary}</p>
+        </div>
+      `;
+
+      card.addEventListener("click", () => {
+        const m = markerMap.get(loc.name);
+        map.setView([loc.lat, loc.lon], 10, { animate: true });
+        m.openPopup();
+        const iconElem = m._icon;
+        if (iconElem) {
+          iconElem.classList.remove("pulse");
+          void iconElem.offsetWidth;
+          iconElem.classList.add("pulse");
+        }
+      });
+
+      container.appendChild(card);
+    });
+
+    let selectedStart = null;
+    let selectedEnd = null;
+
+    function allowDrop(ev) { ev.preventDefault(); }
+
+    const routeSuggestions = {
+  "Castelul Bran->Cetatea Sighișoara": [
+    "Oprește-te la un muzeu rural pentru o lecție de istorie autentică.",
+    "Caută un punct de belvedere pentru apus.",
+    "Oprește-te într-un oraș mic pentru arhitectură și atmosferă."
+  ],
+  "Castelul Bran->Transfăgărășan": [
+    "Relaxează-te într-o zonă de spa sau wellness rustic.",
+    "Savurează produse locale de la o piață țărănească.",
+    "Încearcă o degustare de brânzeturi sau vinuri locale."
+  ],
+  "Castelul Bran->Cheile Nerei": [
+    "Savurează produse locale de la o piață țărănească.",
+    "Relaxează-te într-o zonă de spa sau wellness rustic.",
+    "Oprește-te la un muzeu rural pentru o lecție de istorie autentică."
+  ],
+  "Castelul Bran->Lacul Roșu": [
+    "Vizitează un castel mai puțin cunoscut aflat pe traseu.",
+    "Savurează produse locale de la o piață țărănească.",
+    "Descoperă un han vechi și bucătăria locală."
+  ],
+  "Castelul Bran->Cetatea Alba Carolina": [
+    "Oprește pentru o sesiune foto într-un peisaj natural spectaculos.",
+    "Încearcă o degustare de brânzeturi sau vinuri locale.",
+    "Relaxează-te într-o zonă de spa sau wellness rustic."
+  ],
+  "Castelul Bran->Mănăstirea Voroneț": [
+    "Fă o pauză de cafea într-un sat cu case săsești.",
+    "Vizitează un castel mai puțin cunoscut aflat pe traseu.",
+    "Participă la un atelier de meșteșuguri tradiționale."
+  ],
+  "Castelul Bran->Delta Dunării": [
+    "Savurează produse locale de la o piață țărănească.",
+    "Descoperă un han vechi și bucătăria locală.",
+    "Oprește-te la un muzeu rural pentru o lecție de istorie autentică."
+  ],
+  "Castelul Bran->Cascada Bigăr": [
+    "Caută un punct de belvedere pentru apus.",
+    "Vizitează o biserică fortificată sau o mănăstire.",
+    "Oprește pentru o sesiune foto într-un peisaj natural spectaculos."
+  ],
+  "Castelul Bran->Peștera Scărișoara": [
+    "Oprește-te într-un oraș mic pentru arhitectură și atmosferă.",
+    "Savurează produse locale de la o piață țărănească.",
+    "Oprește-te la un muzeu rural pentru o lecție de istorie autentică."
+  ],
+  "Castelul Bran->Castelul Peleș": [
+    "Oprește-te într-un oraș mic pentru arhitectură și atmosferă.",
+    "Participă la un atelier de meșteșuguri tradiționale.",
+    "Savurează produse locale de la o piață țărănească."
+  ],
+  "Castelul Bran->Biserica Neagră": [
+    "Fă o pauză de cafea într-un sat cu case săsești.",
+    "Oprește-te într-un oraș mic pentru arhitectură și atmosferă.",
+    "Savurează o masă tradițională într-un sat transilvănean."
+  ],
+  "Cetatea Sighișoara->Castelul Bran": [
+    "Oprește-te într-un oraș mic pentru arhitectură și atmosferă.",
+    "Explorează o peșteră sau o rezervație naturală din apropiere.",
+    "Participă la un atelier de meșteșuguri tradiționale."
+  ],
+  "Cetatea Sighișoara->Transfăgărășan": [
+    "Relaxează-te într-o zonă de spa sau wellness rustic.",
+    "Vizitează un castel mai puțin cunoscut aflat pe traseu.",
+    "Caută un punct de belvedere pentru apus."
+  ],
+  "Cetatea Sighișoara->Cheile Nerei": [
+    "Descoperă un han vechi și bucătăria locală.",
+    "Fă o pauză de cafea într-un sat cu case săsești.",
+    "Participă la un atelier de meșteșuguri tradiționale."
+  ],
+  "Cetatea Sighișoara->Lacul Roșu": [
+    "Vizitează un castel mai puțin cunoscut aflat pe traseu.",
+    "Savurează produse locale de la o piață țărănească.",
+    "Explorează o peșteră sau o rezervație naturală din apropiere."
+  ],
+  "Cetatea Sighișoara->Cetatea Alba Carolina": [
+    "Savurează produse locale de la o piață țărănească.",
+    "Fă o pauză de cafea într-un sat cu case săsești.",
+    "Fă o scurtă drumeție pentru o panoramă superbă."
+  ],
+  "Cetatea Sighișoara->Mănăstirea Voroneț": [
+    "Vizitează o biserică fortificată sau o mănăstire.",
+    "Explorează o peșteră sau o rezervație naturală din apropiere.",
+    "Caută un punct de belvedere pentru apus."
+  ],
+  "Cetatea Sighișoara->Delta Dunării": [
+    "Descoperă un han vechi și bucătăria locală.",
+    "Participă la un atelier de meșteșuguri tradiționale.",
+    "Oprește-te la un muzeu rural pentru o lecție de istorie autentică."
+  ],
+  "Cetatea Sighișoara->Cascada Bigăr": [
+    "Participă la un atelier de meșteșuguri tradiționale.",
+    "Savurează produse locale de la o piață țărănească.",
+    "Savurează o masă tradițională într-un sat transilvănean."
+  ],
+  "Cetatea Sighișoara->Peștera Scărișoara": [
+    "Explorează o peșteră sau o rezervație naturală din apropiere.",
+    "Savurează o masă tradițională într-un sat transilvănean.",
+    "Vizitează un castel mai puțin cunoscut aflat pe traseu."
+  ],
+  "Cetatea Sighișoara->Castelul Peleș": [
+    "Fă o pauză de cafea într-un sat cu case săsești.",
+    "Oprește-te la un muzeu rural pentru o lecție de istorie autentică.",
+    "Descoperă un han vechi și bucătăria locală."
+  ],
+  "Cetatea Sighișoara->Biserica Neagră": [
+    "Savurează produse locale de la o piață țărănească.",
+    "Fă o pauză de cafea într-un sat cu case săsești.",
+    "Caută un punct de belvedere pentru apus."
+  ],
+  "Transfăgărășan->Castelul Bran": [
+    "Caută un punct de belvedere pentru apus.",
+    "Savurează o masă tradițională într-un sat transilvănean.",
+    "Relaxează-te într-o zonă de spa sau wellness rustic."
+  ],
+  "Transfăgărășan->Cetatea Sighișoara": [
+    "Fă o scurtă drumeție pentru o panoramă superbă.",
+    "Savurează produse locale de la o piață țărănească.",
+    "Participă la un atelier de meșteșuguri tradiționale."
+  ],
+  "Transfăgărășan->Cheile Nerei": [
+    "Vizitează un castel mai puțin cunoscut aflat pe traseu.",
+    "Fă o pauză de cafea într-un sat cu case săsești.",
+    "Încearcă o degustare de brânzeturi sau vinuri locale."
+  ],
+  "Transfăgărășan->Lacul Roșu": [
+    "Vizitează un castel mai puțin cunoscut aflat pe traseu.",
+    "Savurează o masă tradițională într-un sat transilvănean.",
+    "Fă o scurtă drumeție pentru o panoramă superbă."
+  ],
+  "Transfăgărășan->Cetatea Alba Carolina": [
+    "Vizitează o biserică fortificată sau o mănăstire.",
+    "Oprește-te la un muzeu rural pentru o lecție de istorie autentică.",
+    "Fă o scurtă drumeție pentru o panoramă superbă."
+  ],
+  "Transfăgărășan->Mănăstirea Voroneț": [
+    "Încearcă o degustare de brânzeturi sau vinuri locale.",
+    "Savurează produse locale de la o piață țărănească.",
+    "Participă la un atelier de meșteșuguri tradiționale."
+  ],
+  "Transfăgărășan->Delta Dunării": [
+    "Oprește pentru o sesiune foto într-un peisaj natural spectaculos.",
+    "Încearcă o degustare de brânzeturi sau vinuri locale.",
+    "Relaxează-te într-o zonă de spa sau wellness rustic."
+  ],
+  "Transfăgărășan->Cascada Bigăr": [
+    "Participă la un atelier de meșteșuguri tradiționale.",
+    "Explorează o peșteră sau o rezervație naturală din apropiere.",
+    "Oprește-te la un muzeu rural pentru o lecție de istorie autentică."
+  ],
+  "Transfăgărășan->Peștera Scărișoara": [
+    "Fă o scurtă drumeție pentru o panoramă superbă.",
+    "Oprește-te într-un oraș mic pentru arhitectură și atmosferă.",
+    "Vizitează un castel mai puțin cunoscut aflat pe traseu."
+  ],
+  "Transfăgărășan->Castelul Peleș": [
+    "Oprește pentru o sesiune foto într-un peisaj natural spectaculos.",
+    "Încearcă o degustare de brânzeturi sau vinuri locale.",
+    "Fă o scurtă drumeție pentru o panoramă superbă."
+  ],
+  "Transfăgărășan->Biserica Neagră": [
+    "Vizitează un castel mai puțin cunoscut aflat pe traseu.",
+    "Participă la un atelier de meșteșuguri tradiționale.",
+    "Încearcă o degustare de brânzeturi sau vinuri locale."
+  ],
+  "Cheile Nerei->Castelul Bran": [
+    "Vizitează o biserică fortificată sau o mănăstire.",
+    "Vizitează un castel mai puțin cunoscut aflat pe traseu.",
+    "Oprește pentru o sesiune foto într-un peisaj natural spectaculos."
+  ],
+  "Cheile Nerei->Cetatea Sighișoara": [
+    "Oprește-te într-un oraș mic pentru arhitectură și atmosferă.",
+    "Oprește-te la un muzeu rural pentru o lecție de istorie autentică.",
+    "Relaxează-te într-o zonă de spa sau wellness rustic."
+  ],
+  "Cheile Nerei->Transfăgărășan": [
+    "Descoperă un han vechi și bucătăria locală.",
+    "Oprește pentru o sesiune foto într-un peisaj natural spectaculos.",
+    "Oprește-te la un muzeu rural pentru o lecție de istorie autentică."
+  ],
+  "Cheile Nerei->Lacul Roșu": [
+    "Participă la un atelier de meșteșuguri tradiționale.",
+    "Oprește-te într-un oraș mic pentru arhitectură și atmosferă.",
+    "Caută un punct de belvedere pentru apus."
+  ],
+  "Cheile Nerei->Cetatea Alba Carolina": [
+    "Explorează o peșteră sau o rezervație naturală din apropiere.",
+    "Încearcă o degustare de brânzeturi sau vinuri locale.",
+    "Participă la un atelier de meșteșuguri tradiționale."
+  ],
+  "Cheile Nerei->Mănăstirea Voroneț": [
+    "Oprește-te într-un oraș mic pentru arhitectură și atmosferă.",
+    "Oprește pentru o sesiune foto într-un peisaj natural spectaculos.",
+    "Relaxează-te într-o zonă de spa sau wellness rustic."
+  ],
+  "Cheile Nerei->Delta Dunării": [
+    "Oprește pentru o sesiune foto într-un peisaj natural spectaculos.",
+    "Descoperă un han vechi și bucătăria locală.",
+    "Fă o scurtă drumeție pentru o panoramă superbă."
+  ],
+  "Cheile Nerei->Cascada Bigăr": [
+    "Încearcă o degustare de brânzeturi sau vinuri locale.",
+    "Oprește-te la un muzeu rural pentru o lecție de istorie autentică.",
+    "Oprește pentru o sesiune foto într-un peisaj natural spectaculos."
+  ],
+  "Cheile Nerei->Peștera Scărișoara": [
+    "Oprește-te într-un oraș mic pentru arhitectură și atmosferă.",
+    "Vizitează un castel mai puțin cunoscut aflat pe traseu.",
+    "Vizitează o biserică fortificată sau o mănăstire."
+  ],
+  "Cheile Nerei->Castelul Peleș": [
+    "Fă o scurtă drumeție pentru o panoramă superbă.",
+    "Oprește pentru o sesiune foto într-un peisaj natural spectaculos.",
+    "Oprește-te într-un oraș mic pentru arhitectură și atmosferă."
+  ],
+  "Cheile Nerei->Biserica Neagră": [
+    "Vizitează un castel mai puțin cunoscut aflat pe traseu.",
+    "Fă o pauză de cafea într-un sat cu case săsești.",
+    "Caută un punct de belvedere pentru apus."
+  ],
+  "Lacul Roșu->Castelul Bran": [
+    "Savurează produse locale de la o piață țărănească.",
+    "Participă la un atelier de meșteșuguri tradiționale.",
+    "Caută un punct de belvedere pentru apus."
+  ],
+  "Lacul Roșu->Cetatea Sighișoara": [
+    "Fă o scurtă drumeție pentru o panoramă superbă.",
+    "Oprește-te la un muzeu rural pentru o lecție de istorie autentică.",
+    "Vizitează o biserică fortificată sau o mănăstire."
+  ],
+  "Lacul Roșu->Transfăgărășan": [
+    "Oprește-te la un muzeu rural pentru o lecție de istorie autentică.",
+    "Oprește-te într-un oraș mic pentru arhitectură și atmosferă.",
+    "Caută un punct de belvedere pentru apus."
+  ],
+  "Lacul Roșu->Cheile Nerei": [
+    "Oprește-te la un muzeu rural pentru o lecție de istorie autentică.",
+    "Fă o pauză de cafea într-un sat cu case săsești.",
+    "Savurează produse locale de la o piață țărănească."
+  ],
+  "Lacul Roșu->Cetatea Alba Carolina": [
+    "Fă o scurtă drumeție pentru o panoramă superbă.",
+    "Oprește pentru o sesiune foto într-un peisaj natural spectaculos.",
+    "Vizitează un castel mai puțin cunoscut aflat pe traseu."
+  ],
+  "Lacul Roșu->Mănăstirea Voroneț": [
+    "Vizitează o biserică fortificată sau o mănăstire.",
+    "Descoperă un han vechi și bucătăria locală.",
+    "Încearcă o degustare de brânzeturi sau vinuri locale."
+  ],
+  "Lacul Roșu->Delta Dunării": [
+    "Explorează o peșteră sau o rezervație naturală din apropiere.",
+    "Savurează o masă tradițională într-un sat transilvănean.",
+    "Vizitează un castel mai puțin cunoscut aflat pe traseu."
+  ],
+  "Lacul Roșu->Cascada Bigăr": [
+    "Fă o pauză de cafea într-un sat cu case săsești.",
+    "Oprește-te într-un oraș mic pentru arhitectură și atmosferă.",
+    "Vizitează o biserică fortificată sau o mănăstire."
+  ],
+  "Lacul Roșu->Peștera Scărișoara": [
+    "Vizitează un castel mai puțin cunoscut aflat pe traseu.",
+    "Explorează o peșteră sau o rezervație naturală din apropiere.",
+    "Fă o pauză de cafea într-un sat cu case săsești."
+  ],
+  "Lacul Roșu->Castelul Peleș": [
+    "Vizitează un castel mai puțin cunoscut aflat pe traseu.",
+    "Savurează o masă tradițională într-un sat transilvănean.",
+    "Oprește pentru o sesiune foto într-un peisaj natural spectaculos."
+  ],
+  "Lacul Roșu->Biserica Neagră": [
+    "Vizitează o biserică fortificată sau o mănăstire.",
+    "Fă o pauză de cafea într-un sat cu case săsești.",
+    "Descoperă un han vechi și bucătăria locală."
+  ],
+  "Cetatea Alba Carolina->Castelul Bran": [
+    "Fă o scurtă drumeție pentru o panoramă superbă.",
+    "Oprește-te la un muzeu rural pentru o lecție de istorie autentică.",
+    "Fă o pauză de cafea într-un sat cu case săsești."
+  ],
+  "Cetatea Alba Carolina->Cetatea Sighișoara": [
+    "Oprește-te la un muzeu rural pentru o lecție de istorie autentică.",
+    "Participă la un atelier de meșteșuguri tradiționale.",
+    "Vizitează un castel mai puțin cunoscut aflat pe traseu."
+  ],
+  "Cetatea Alba Carolina->Transfăgărășan": [
+    "Caută un punct de belvedere pentru apus.",
+    "Fă o pauză de cafea într-un sat cu case săsești.",
+    "Vizitează o biserică fortificată sau o mănăstire."
+  ],
+  "Cetatea Alba Carolina->Cheile Nerei": [
+    "Savurează produse locale de la o piață țărănească.",
+    "Fă o pauză de cafea într-un sat cu case săsești.",
+    "Vizitează un castel mai puțin cunoscut aflat pe traseu."
+  ],
+  "Cetatea Alba Carolina->Lacul Roșu": [
+    "Caută un punct de belvedere pentru apus.",
+    "Savurează o masă tradițională într-un sat transilvănean.",
+    "Descoperă un han vechi și bucătăria locală."
+  ],
+  "Cetatea Alba Carolina->Mănăstirea Voroneț": [
+    "Explorează o peșteră sau o rezervație naturală din apropiere.",
+    "Vizitează un castel mai puțin cunoscut aflat pe traseu.",
+    "Fă o scurtă drumeție pentru o panoramă superbă."
+  ],
+  "Cetatea Alba Carolina->Delta Dunării": [
+    "Oprește-te într-un oraș mic pentru arhitectură și atmosferă.",
+    "Savurează produse locale de la o piață țărănească.",
+    "Oprește-te la un muzeu rural pentru o lecție de istorie autentică."
+  ],
+  "Cetatea Alba Carolina->Cascada Bigăr": [
+    "Descoperă un han vechi și bucătăria locală.",
+    "Oprește-te într-un oraș mic pentru arhitectură și atmosferă.",
+    "Savurează o masă tradițională într-un sat transilvănean."
+  ],
+  "Cetatea Alba Carolina->Peștera Scărișoara": [
+    "Savurează produse locale de la o piață țărănească.",
+    "Încearcă o degustare de brânzeturi sau vinuri locale.",
+    "Participă la un atelier de meșteșuguri tradiționale."
+  ],
+  "Cetatea Alba Carolina->Castelul Peleș": [
+    "Relaxează-te într-o zonă de spa sau wellness rustic.",
+    "Încearcă o degustare de brânzeturi sau vinuri locale.",
+    "Vizitează un castel mai puțin cunoscut aflat pe traseu."
+  ],
+  "Cetatea Alba Carolina->Biserica Neagră": [
+    "Oprește pentru o sesiune foto într-un peisaj natural spectaculos.",
+    "Vizitează o biserică fortificată sau o mănăstire.",
+    "Oprește-te într-un oraș mic pentru arhitectură și atmosferă."
+  ],
+  "Mănăstirea Voroneț->Castelul Bran": [
+    "Participă la un atelier de meșteșuguri tradiționale.",
+    "Savurează o masă tradițională într-un sat transilvănean.",
+    "Încearcă o degustare de brânzeturi sau vinuri locale."
+  ],
+  "Mănăstirea Voroneț->Cetatea Sighișoara": [
+    "Descoperă un han vechi și bucătăria locală.",
+    "Oprește-te într-un oraș mic pentru arhitectură și atmosferă.",
+    "Oprește-te la un muzeu rural pentru o lecție de istorie autentică."
+  ],
+  "Mănăstirea Voroneț->Transfăgărășan": [
+    "Oprește-te la un muzeu rural pentru o lecție de istorie autentică.",
+    "Fă o pauză de cafea într-un sat cu case săsești.",
+    "Vizitează un castel mai puțin cunoscut aflat pe traseu."
+  ],
+  "Mănăstirea Voroneț->Cheile Nerei": [
+    "Explorează o peșteră sau o rezervație naturală din apropiere.",
+    "Descoperă un han vechi și bucătăria locală.",
+    "Relaxează-te într-o zonă de spa sau wellness rustic."
+  ],
+  "Mănăstirea Voroneț->Lacul Roșu": [
+    "Relaxează-te într-o zonă de spa sau wellness rustic.",
+    "Explorează o peșteră sau o rezervație naturală din apropiere.",
+    "Caută un punct de belvedere pentru apus."
+  ],
+  "Mănăstirea Voroneț->Cetatea Alba Carolina": [
+    "Descoperă un han vechi și bucătăria locală.",
+    "Încearcă o degustare de brânzeturi sau vinuri locale.",
+    "Oprește-te la un muzeu rural pentru o lecție de istorie autentică."
+  ],
+  "Mănăstirea Voroneț->Delta Dunării": [
+    "Oprește-te la un muzeu rural pentru o lecție de istorie autentică.",
+    "Participă la un atelier de meșteșuguri tradiționale.",
+    "Explorează o peșteră sau o rezervație naturală din apropiere."
+  ],
+  "Mănăstirea Voroneț->Cascada Bigăr": [
+    "Savurează produse locale de la o piață țărănească.",
+    "Relaxează-te într-o zonă de spa sau wellness rustic.",
+    "Explorează o peșteră sau o rezervație naturală din apropiere."
+  ],
+  "Mănăstirea Voroneț->Peștera Scărișoara": [
+    "Descoperă un han vechi și bucătăria locală.",
+    "Fă o scurtă drumeție pentru o panoramă superbă.",
+    "Participă la un atelier de meșteșuguri tradiționale."
+  ],
+  "Mănăstirea Voroneț->Castelul Peleș": [
+    "Oprește-te la un muzeu rural pentru o lecție de istorie autentică.",
+    "Savurează produse locale de la o piață țărănească.",
+    "Fă o scurtă drumeție pentru o panoramă superbă."
+  ],
+  "Mănăstirea Voroneț->Biserica Neagră": [
+    "Caută un punct de belvedere pentru apus.",
+    "Savurează o masă tradițională într-un sat transilvănean.",
+    "Oprește-te într-un oraș mic pentru arhitectură și atmosferă."
+  ],
+  "Delta Dunării->Castelul Bran": [
+    "Încearcă o degustare de brânzeturi sau vinuri locale.",
+    "Descoperă un han vechi și bucătăria locală.",
+    "Oprește-te într-un oraș mic pentru arhitectură și atmosferă."
+  ],
+  "Delta Dunării->Cetatea Sighișoara": [
+    "Savurează produse locale de la o piață țărănească.",
+    "Savurează o masă tradițională într-un sat transilvănean.",
+    "Descoperă un han vechi și bucătăria locală."
+  ],
+  "Delta Dunării->Transfăgărășan": [
+    "Oprește-te într-un oraș mic pentru arhitectură și atmosferă.",
+    "Savurează o masă tradițională într-un sat transilvănean.",
+    "Fă o scurtă drumeție pentru o panoramă superbă."
+  ],
+  "Delta Dunării->Cheile Nerei": [
+    "Savurează produse locale de la o piață țărănească.",
+    "Oprește pentru o sesiune foto într-un peisaj natural spectaculos.",
+    "Oprește-te într-un oraș mic pentru arhitectură și atmosferă."
+  ],
+  "Delta Dunării->Lacul Roșu": [
+    "Fă o pauză de cafea într-un sat cu case săsești.",
+    "Fă o scurtă drumeție pentru o panoramă superbă.",
+    "Oprește-te la un muzeu rural pentru o lecție de istorie autentică."
+  ],
+  "Delta Dunării->Cetatea Alba Carolina": [
+    "Savurează produse locale de la o piață țărănească.",
+    "Vizitează un castel mai puțin cunoscut aflat pe traseu.",
+    "Descoperă un han vechi și bucătăria locală."
+  ],
+  "Delta Dunării->Mănăstirea Voroneț": [
+    "Vizitează un castel mai puțin cunoscut aflat pe traseu.",
+    "Descoperă un han vechi și bucătăria locală.",
+    "Oprește pentru o sesiune foto într-un peisaj natural spectaculos."
+  ],
+  "Delta Dunării->Cascada Bigăr": [
+    "Fă o scurtă drumeție pentru o panoramă superbă.",
+    "Relaxează-te într-o zonă de spa sau wellness rustic.",
+    "Savurează produse locale de la o piață țărănească."
+  ],
+  "Delta Dunării->Peștera Scărișoara": [
+    "Descoperă un han vechi și bucătăria locală.",
+    "Explorează o peșteră sau o rezervație naturală din apropiere.",
+    "Vizitează un castel mai puțin cunoscut aflat pe traseu."
+  ],
+  "Delta Dunării->Castelul Peleș": [
+    "Descoperă un han vechi și bucătăria locală.",
+    "Fă o pauză de cafea într-un sat cu case săsești.",
+    "Savurează o masă tradițională într-un sat transilvănean."
+  ],
+  "Delta Dunării->Biserica Neagră": [
+    "Participă la un atelier de meșteșuguri tradiționale.",
+    "Oprește-te la un muzeu rural pentru o lecție de istorie autentică.",
+    "Caută un punct de belvedere pentru apus."
+  ],
+  "Cascada Bigăr->Castelul Bran": [
+    "Participă la un atelier de meșteșuguri tradiționale.",
+    "Caută un punct de belvedere pentru apus.",
+    "Încearcă o degustare de brânzeturi sau vinuri locale."
+  ],
+  "Cascada Bigăr->Cetatea Sighișoara": [
+    "Relaxează-te într-o zonă de spa sau wellness rustic.",
+    "Oprește-te într-un oraș mic pentru arhitectură și atmosferă.",
+    "Savurează o masă tradițională într-un sat transilvănean."
+  ],
+  "Cascada Bigăr->Transfăgărășan": [
+    "Fă o pauză de cafea într-un sat cu case săsești.",
+    "Fă o scurtă drumeție pentru o panoramă superbă.",
+    "Oprește pentru o sesiune foto într-un peisaj natural spectaculos."
+  ],
+  "Cascada Bigăr->Cheile Nerei": [
+    "Savurează produse locale de la o piață țărănească.",
+    "Descoperă un han vechi și bucătăria locală.",
+    "Savurează o masă tradițională într-un sat transilvănean."
+  ],
+  "Cascada Bigăr->Lacul Roșu": [
+    "Fă o scurtă drumeție pentru o panoramă superbă.",
+    "Savurează o masă tradițională într-un sat transilvănean.",
+    "Vizitează un castel mai puțin cunoscut aflat pe traseu."
+  ],
+  "Cascada Bigăr->Cetatea Alba Carolina": [
+    "Relaxează-te într-o zonă de spa sau wellness rustic.",
+    "Descoperă un han vechi și bucătăria locală.",
+    "Savurează o masă tradițională într-un sat transilvănean."
+  ],
+  "Cascada Bigăr->Mănăstirea Voroneț": [
+    "Participă la un atelier de meșteșuguri tradiționale.",
+    "Încearcă o degustare de brânzeturi sau vinuri locale.",
+    "Fă o scurtă drumeție pentru o panoramă superbă."
+  ],
+  "Cascada Bigăr->Delta Dunării": [
+    "Relaxează-te într-o zonă de spa sau wellness rustic.",
+    "Încearcă o degustare de brânzeturi sau vinuri locale.",
+    "Oprește pentru o sesiune foto într-un peisaj natural spectaculos."
+  ],
+  "Cascada Bigăr->Peștera Scărișoara": [
+    "Descoperă un han vechi și bucătăria locală.",
+    "Explorează o peșteră sau o rezervație naturală din apropiere.",
+    "Fă o pauză de cafea într-un sat cu case săsești."
+  ],
+  "Cascada Bigăr->Castelul Peleș": [
+    "Explorează o peșteră sau o rezervație naturală din apropiere.",
+    "Oprește-te la un muzeu rural pentru o lecție de istorie autentică.",
+    "Participă la un atelier de meșteșuguri tradiționale."
+  ],
+  "Cascada Bigăr->Biserica Neagră": [
+    "Savurează o masă tradițională într-un sat transilvănean.",
+    "Vizitează o biserică fortificată sau o mănăstire.",
+    "Caută un punct de belvedere pentru apus."
+  ],
+  "Peștera Scărișoara->Castelul Bran": [
+    "Descoperă un han vechi și bucătăria locală.",
+    "Oprește-te într-un oraș mic pentru arhitectură și atmosferă.",
+    "Vizitează un castel mai puțin cunoscut aflat pe traseu."
+  ],
+  "Peștera Scărișoara->Cetatea Sighișoara": [
+    "Oprește-te la un muzeu rural pentru o lecție de istorie autentică.",
+    "Oprește pentru o sesiune foto într-un peisaj natural spectaculos.",
+    "Caută un punct de belvedere pentru apus."
+  ],
+  "Peștera Scărișoara->Transfăgărășan": [
+    "Vizitează un castel mai puțin cunoscut aflat pe traseu.",
+    "Relaxează-te într-o zonă de spa sau wellness rustic.",
+    "Fă o pauză de cafea într-un sat cu case săsești."
+  ],
+  "Peștera Scărișoara->Cheile Nerei": [
+    "Savurează o masă tradițională într-un sat transilvănean.",
+    "Oprește-te la un muzeu rural pentru o lecție de istorie autentică.",
+    "Vizitează o biserică fortificată sau o mănăstire."
+  ],
+  "Peștera Scărișoara->Lacul Roșu": [
+    "Oprește-te la un muzeu rural pentru o lecție de istorie autentică.",
+    "Oprește-te într-un oraș mic pentru arhitectură și atmosferă.",
+    "Fă o pauză de cafea într-un sat cu case săsești."
+  ],
+  "Peștera Scărișoara->Cetatea Alba Carolina": [
+    "Relaxează-te într-o zonă de spa sau wellness rustic.",
+    "Explorează o peșteră sau o rezervație naturală din apropiere.",
+    "Savurează o masă tradițională într-un sat transilvănean."
+  ],
+  "Peștera Scărișoara->Mănăstirea Voroneț": [
+    "Oprește-te într-un oraș mic pentru arhitectură și atmosferă.",
+    "Savurează o masă tradițională într-un sat transilvănean.",
+    "Caută un punct de belvedere pentru apus."
+  ],
+  "Peștera Scărișoara->Delta Dunării": [
+    "Relaxează-te într-o zonă de spa sau wellness rustic.",
+    "Vizitează o biserică fortificată sau o mănăstire.",
+    "Descoperă un han vechi și bucătăria locală."
+  ],
+  "Peștera Scărișoara->Cascada Bigăr": [
+    "Încearcă o degustare de brânzeturi sau vinuri locale.",
+    "Vizitează un castel mai puțin cunoscut aflat pe traseu.",
+    "Oprește-te într-un oraș mic pentru arhitectură și atmosferă."
+  ],
+  "Peștera Scărișoara->Castelul Peleș": [
+    "Fă o pauză de cafea într-un sat cu case săsești.",
+    "Vizitează un castel mai puțin cunoscut aflat pe traseu.",
+    "Savurează produse locale de la o piață țărănească."
+  ],
+  "Peștera Scărișoara->Biserica Neagră": [
+    "Explorează o peșteră sau o rezervație naturală din apropiere.",
+    "Vizitează o biserică fortificată sau o mănăstire.",
+    "Caută un punct de belvedere pentru apus."
+  ],
+  "Castelul Peleș->Castelul Bran": [
+    "Caută un punct de belvedere pentru apus.",
+    "Explorează o peșteră sau o rezervație naturală din apropiere.",
+    "Participă la un atelier de meșteșuguri tradiționale."
+  ],
+  "Castelul Peleș->Cetatea Sighișoara": [
+    "Participă la un atelier de meșteșuguri tradiționale.",
+    "Descoperă un han vechi și bucătăria locală.",
+    "Fă o pauză de cafea într-un sat cu case săsești."
+  ],
+  "Castelul Peleș->Transfăgărășan": [
+    "Participă la un atelier de meșteșuguri tradiționale.",
+    "Fă o scurtă drumeție pentru o panoramă superbă.",
+    "Încearcă o degustare de brânzeturi sau vinuri locale."
+  ],
+  "Castelul Peleș->Cheile Nerei": [
+    "Savurează o masă tradițională într-un sat transilvănean.",
+    "Oprește-te într-un oraș mic pentru arhitectură și atmosferă.",
+    "Fă o scurtă drumeție pentru o panoramă superbă."
+  ],
+  "Castelul Peleș->Lacul Roșu": [
+    "Explorează o peșteră sau o rezervație naturală din apropiere.",
+    "Caută un punct de belvedere pentru apus.",
+    "Savurează produse locale de la o piață țărănească."
+  ],
+  "Castelul Peleș->Cetatea Alba Carolina": [
+    "Participă la un atelier de meșteșuguri tradiționale.",
+    "Oprește pentru o sesiune foto într-un peisaj natural spectaculos.",
+    "Savurează produse locale de la o piață țărănească."
+  ],
+  "Castelul Peleș->Mănăstirea Voroneț": [
+    "Fă o scurtă drumeție pentru o panoramă superbă.",
+    "Savurează o masă tradițională într-un sat transilvănean.",
+    "Savurează produse locale de la o piață țărănească."
+  ],
+  "Castelul Peleș->Delta Dunării": [
+    "Fă o pauză de cafea într-un sat cu case săsești.",
+    "Savurează produse locale de la o piață țărănească.",
+    "Explorează o peșteră sau o rezervație naturală din apropiere."
+  ],
+  "Castelul Peleș->Cascada Bigăr": [
+    "Oprește pentru o sesiune foto într-un peisaj natural spectaculos.",
+    "Descoperă un han vechi și bucătăria locală.",
+    "Participă la un atelier de meșteșuguri tradiționale."
+  ],
+  "Castelul Peleș->Peștera Scărișoara": [
+    "Fă o pauză de cafea într-un sat cu case săsești.",
+    "Vizitează un castel mai puțin cunoscut aflat pe traseu.",
+    "Oprește pentru o sesiune foto într-un peisaj natural spectaculos."
+  ],
+  "Castelul Peleș->Biserica Neagră": [
+    "Savurează o masă tradițională într-un sat transilvănean.",
+    "Fă o pauză de cafea într-un sat cu case săsești.",
+    "Savurează produse locale de la o piață țărănească."
+  ],
+  "Biserica Neagră->Castelul Bran": [
+    "Participă la un atelier de meșteșuguri tradiționale.",
+    "Fă o pauză de cafea într-un sat cu case săsești.",
+    "Relaxează-te într-o zonă de spa sau wellness rustic."
+  ],
+  "Biserica Neagră->Cetatea Sighișoara": [
+    "Oprește pentru o sesiune foto într-un peisaj natural spectaculos.",
+    "Oprește-te la un muzeu rural pentru o lecție de istorie autentică.",
+    "Descoperă un han vechi și bucătăria locală."
+  ],
+  "Biserica Neagră->Transfăgărășan": [
+    "Fă o pauză de cafea într-un sat cu case săsești.",
+    "Vizitează un castel mai puțin cunoscut aflat pe traseu.",
+    "Încearcă o degustare de brânzeturi sau vinuri locale."
+  ],
+  "Biserica Neagră->Cheile Nerei": [
+    "Explorează o peșteră sau o rezervație naturală din apropiere.",
+    "Fă o scurtă drumeție pentru o panoramă superbă.",
+    "Fă o pauză de cafea într-un sat cu case săsești."
+  ],
+  "Biserica Neagră->Lacul Roșu": [
+    "Vizitează un castel mai puțin cunoscut aflat pe traseu.",
+    "Savurează produse locale de la o piață țărănească.",
+    "Descoperă un han vechi și bucătăria locală."
+  ],
+  "Biserica Neagră->Cetatea Alba Carolina": [
+    "Fă o pauză de cafea într-un sat cu case săsești.",
+    "Oprește-te într-un oraș mic pentru arhitectură și atmosferă.",
+    "Oprește pentru o sesiune foto într-un peisaj natural spectaculos."
+  ],
+  "Biserica Neagră->Mănăstirea Voroneț": [
+    "Încearcă o degustare de brânzeturi sau vinuri locale.",
+    "Savurează o masă tradițională într-un sat transilvănean.",
+    "Oprește pentru o sesiune foto într-un peisaj natural spectaculos."
+  ],
+  "Biserica Neagră->Delta Dunării": [
+    "Vizitează o biserică fortificată sau o mănăstire.",
+    "Oprește pentru o sesiune foto într-un peisaj natural spectaculos.",
+    "Participă la un atelier de meșteșuguri tradiționale."
+  ],
+  "Biserica Neagră->Cascada Bigăr": [
+    "Savurează o masă tradițională într-un sat transilvănean.",
+    "Relaxează-te într-o zonă de spa sau wellness rustic.",
+    "Vizitează un castel mai puțin cunoscut aflat pe traseu."
+  ],
+  "Biserica Neagră->Peștera Scărișoara": [
+    "Vizitează o biserică fortificată sau o mănăstire.",
+    "Participă la un atelier de meșteșuguri tradiționale.",
+    "Savurează produse locale de la o piață țărănească."
+  ],
+  "Biserica Neagră->Castelul Peleș": [
+    "Descoperă un han vechi și bucătăria locală.",
+    "Vizitează un castel mai puțin cunoscut aflat pe traseu.",
+    "Relaxează-te într-o zonă de spa sau wellness rustic."
+  ],
+};
+
+    function onDrop(ev) {
+      ev.preventDefault();
+      const locName = ev.dataTransfer.getData("text/plain");
+      const loc = predefinedLocations.find(l => l.name === locName);
+      const dropTarget = ev.currentTarget;
+
+      dropTarget.innerText = loc.name;
+
+      if (dropTarget.id === "start-drop") selectedStart = loc;
+      else selectedEnd = loc;
+
+      if (selectedStart && selectedEnd) {
+        const comboKey = `${selectedStart.name}->${selectedEnd.name}`;
+        const box = document.getElementById("suggestion-box");
+
+        // Generate unique 3 suggestions per route combination
+        const suggestions = routeSuggestions[comboKey];
+
+        if (suggestions) {
+          box.innerHTML = `<h3>Sugestii pentru traseu:</h3><ul>${suggestions.map(s => `<li>${s}</li>`).join('')}</ul>`;
+        } else {
+          box.innerHTML = `<h3>Nu există sugestii definite pentru acest traseu.</h3>`;
+        }
+
+        box.style.display = "block";
+        box.scrollIntoView({ behavior: 'smooth' });
+      }
+    }
+  </script>
+</body>
+</html>
